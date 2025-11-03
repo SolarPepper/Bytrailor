@@ -134,6 +134,10 @@ GitHub Actions run on each push/PR:
 - Docker build
 - `docker compose config`
 
+## Security
+
+See the [Security Policy](SECURITY.md).
+
 ## License
 
 MIT — use at your own risk.

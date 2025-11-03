@@ -53,7 +53,7 @@ try:
         server_timestamp = result.get("time", 0)
         if isinstance(server_timestamp, str):
             server_timestamp = int(server_timestamp)
-    
+
     local_timestamp = int(time.time())
     if isinstance(server_timestamp, int) and server_timestamp > 0:
         time_diff = abs(server_timestamp - local_timestamp)
@@ -82,11 +82,13 @@ positions_lock = threading.Lock()
 prices_lock = threading.Lock()
 ws_public_ref = None
 
+
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
+
 
 def has_take_profit_order(symbol: str, position_idx: int, side: str) -> bool:
     try:
@@ -107,8 +109,10 @@ def has_take_profit_order(symbol: str, position_idx: int, side: str) -> bool:
         logging.debug("%s: Error checking take-profit orders: %s", symbol, e)
         return False
 
+
 subscribed_symbols = set()
 symbols_lock = threading.Lock()
+
 
 def subscribe_to_symbol_price(ws_public: Any, symbol: str) -> None:
     with symbols_lock:
@@ -124,6 +128,7 @@ def subscribe_to_symbol_price(ws_public: Any, symbol: str) -> None:
                 logging.error("Error subscribing to tickers for %s: %s", symbol, e)
 
 # Функция handle_position_update удалена - позиции теперь получаем через HTTP API
+
 
 def handle_price_update(message: Dict[str, Any]) -> None:
     try:
@@ -149,36 +154,39 @@ def handle_price_update(message: Dict[str, Any]) -> None:
     except Exception as e:
         logging.error("Error handling price update: %s", e)
 
+
 def get_active_positions() -> Dict[str, Dict[str, Any]]:
     """Получает список активных позиций через HTTP API"""
     try:
         positions_response = http.get_positions(category="linear", settleCoin="USDT")
-        
+
         if positions_response.get("retCode") != 0:
-            logging.warning("Failed to get positions: %s (retCode: %s)", 
-                          positions_response.get("retMsg"), 
-                          positions_response.get("retCode"))
+            logging.warning(
+                "Failed to get positions: %s (retCode: %s)",
+                positions_response.get("retMsg"),
+                positions_response.get("retCode")
+            )
             return {}
-        
+
         current_positions = {}
-        
+
         for pos in positions_response.get("result", {}).get("list", []):
             symbol = pos.get("symbol", "")
             qty = safe_float(pos.get("size", 0), 0.0)
-            
+
             if qty > 0 and symbol:
                 position_idx = int(pos.get("positionIdx", 0))
                 side = pos.get("side", "")
                 entry_price = safe_float(pos.get("avgPrice", 0), 0.0)
                 stop_loss = safe_float(pos.get("stopLoss", 0), 0.0)
                 unrealized_pnl = safe_float(pos.get("unrealisedPnl", 0), 0.0)
-                
+
                 position_margin = entry_price * qty
                 if position_margin > 0:
                     unrealized_pnl_percent = (unrealized_pnl / position_margin) * 100
                 else:
                     unrealized_pnl_percent = 0
-                
+
                 # Получаем текущую цену из WebSocket или используем цену входа
                 current_price = entry_price
                 with prices_lock:
@@ -187,9 +195,9 @@ def get_active_positions() -> Dict[str, Dict[str, Any]]:
                             current_price = prices_data[symbol].get("askPrice", entry_price)
                         else:
                             current_price = prices_data[symbol].get("bidPrice", entry_price)
-                
+
                 has_tp = has_take_profit_order(symbol, position_idx, side)
-                
+
                 current_positions[symbol] = {
                     "qty": qty,
                     "positionIdx": position_idx,
@@ -201,16 +209,16 @@ def get_active_positions() -> Dict[str, Dict[str, Any]]:
                     "current_price": current_price,
                     "has_take_profit": has_tp
                 }
-                
+
                 # Добавляем подписку на цену для этого символа
-                global ws_public_ref
                 if ws_public_ref:
                     subscribe_to_symbol_price(ws_public_ref, symbol)
-        
+
         return current_positions
     except Exception as e:
         logging.error("Error getting active positions: %s", e)
         return {}
+
 
 def set_stop_loss(symbol: str, position_idx: int, side: str, current_price: float) -> bool:
     try:
@@ -246,6 +254,7 @@ def set_stop_loss(symbol: str, position_idx: int, side: str, current_price: floa
     except Exception as e:
         logging.error("%s: Failed to set stop-loss: %s", symbol, e)
         return False
+
 
 def set_take_profit_order(symbol: str, qty: float, position_idx: int, side: str, current_price: float) -> bool:
     try:
@@ -289,6 +298,7 @@ def set_take_profit_order(symbol: str, qty: float, position_idx: int, side: str,
         logging.error("%s: Failed to place take-profit: %s", symbol, e)
         return False
 
+
 def update_stop_loss(
     symbol: str,
     position_idx: int,
@@ -317,7 +327,7 @@ def update_stop_loss(
 
         if price_change_percent >= TRAILING_START_PERCENT:
             trailing_factor = 1 - (TRAILING_DISTANCE_PERCENT / 100) if side == "Buy" else 1 + (TRAILING_DISTANCE_PERCENT / 100)
-            
+
             if side == "Buy":
                 sl_candidate = round(current_price * trailing_factor, 6)
                 if sl_candidate > current_stop_loss:
@@ -351,13 +361,14 @@ def update_stop_loss(
         logging.error("%s: Failed to update stop-loss: %s", symbol, e)
         return unrealized_pnl_percent
 
+
 def trailing_loop() -> None:
     """Основной цикл трейлинга стоп-лоссов"""
     previous_positions = {}
     while True:
         try:
             current_positions = get_active_positions()
-            
+
             # Выявляем новые позиции
             new_positions = {s: d for s, d in current_positions.items() if s not in previous_positions}
             if new_positions:
@@ -377,7 +388,7 @@ def trailing_loop() -> None:
                             data["side"],
                             data["current_price"]
                         )
-            
+
             # Обновляем стоп-лоссы для всех позиций
             for symbol, data in current_positions.items():
                 update_stop_loss(
@@ -389,17 +400,18 @@ def trailing_loop() -> None:
                     data["unrealized_pnl_percent"],
                     data["current_price"]
                 )
-            
+
             # Выявляем закрытые позиции
             removed_positions = {s: d for s, d in previous_positions.items() if s not in current_positions}
             if removed_positions:
                 logging.info("Closed symbols: %s", ", ".join(removed_positions.keys()))
-            
+
             previous_positions = current_positions.copy()
             time.sleep(2)
         except Exception as e:
             logging.error("Error in trailing loop: %s", e)
             time.sleep(5)
+
 
 def initialize_positions() -> List[str]:
     try:
@@ -413,16 +425,18 @@ def initialize_positions() -> List[str]:
                     logging.error("Invalid API key. Please check your API keys in .env file")
                 elif test_response.get("retCode") == 10004:
                     logging.error("API key does not have required permissions")
-                else:
-                    logging.error("API error: %s (retCode: %s)", 
-                                 test_response.get("retMsg"), 
-                                 test_response.get("retCode"))
+            else:
+                logging.error(
+                    "API error: %s (retCode: %s)",
+                    test_response.get("retMsg"),
+                    test_response.get("retCode")
+                )
                 return []
         except Exception as test_e:
             logging.warning("Could not verify API access: %s", test_e)
-        
+
         positions_response = http.get_positions(category="linear", settleCoin="USDT")
-        
+
         # Проверяем код ответа
         if positions_response.get("retCode") != 0:
             error_msg = positions_response.get("retMsg", "Unknown error")
@@ -439,28 +453,28 @@ def initialize_positions() -> List[str]:
             else:
                 logging.error("Failed to get positions: %s (retCode: %s)", error_msg, error_code)
             return []
-        
+
         symbols_to_subscribe = []
-        
+
         for pos in positions_response.get("result", {}).get("list", []):
             symbol = pos.get("symbol", "")
             qty = safe_float(pos.get("size", 0), 0.0)
-            
+
             if qty > 0 and symbol:
                 position_idx = int(pos.get("positionIdx", 0))
                 side = pos.get("side", "")
                 entry_price = safe_float(pos.get("avgPrice", 0), 0.0)
                 stop_loss = safe_float(pos.get("stopLoss", 0), 0.0)
                 unrealized_pnl = safe_float(pos.get("unrealisedPnl", 0), 0.0)
-                
+
                 position_margin = entry_price * qty
                 if position_margin > 0:
                     unrealized_pnl_percent = (unrealized_pnl / position_margin) * 100
                 else:
                     unrealized_pnl_percent = 0
-                
+
                 has_tp = has_take_profit_order(symbol, position_idx, side)
-                
+
                 with positions_lock:
                     positions_data[symbol] = {
                         "qty": qty,
@@ -473,21 +487,22 @@ def initialize_positions() -> List[str]:
                         "current_price": entry_price,
                         "has_take_profit": has_tp
                     }
-                
+
                 symbols_to_subscribe.append(symbol)
                 logging.info("Found active position: %s (%s)", symbol, side)
-                
+
         return symbols_to_subscribe
     except Exception as e:
         logging.error("Failed to initialize positions: %s", e)
         return []
 
+
 def main() -> None:
     logging.info("Starting WebSocket monitoring of active symbols...")
-    
+
     # Инициализируем существующие позиции при запуске
     active_symbols = initialize_positions()
-    
+
     # Инициализируем публичный WebSocket для получения цен
     # Приватный WebSocket отключен из-за проблем с авторизацией
     # Позиции будем получать через HTTP API в основном цикле
@@ -496,7 +511,7 @@ def main() -> None:
         testnet=_cfg.testnet,
         channel_type="linear"
     )
-    
+
     # Подписываемся на цены для активных позиций
     if active_symbols:
         for symbol in active_symbols:
@@ -508,14 +523,14 @@ def main() -> None:
         for symbol in default_symbols:
             subscribe_to_symbol_price(ws_public_ref, symbol)
         logging.info("No active positions found. Subscribed to default symbols: %s", ", ".join(default_symbols))
-    
+
     # Запускаем основной цикл трейлинга
     trailing_thread = threading.Thread(target=trailing_loop, daemon=True)
     trailing_thread.start()
-    
+
     logging.info("Bot started. Using public WebSocket for prices and HTTP API for positions.")
     logging.info("Press Ctrl+C to stop...")
-    
+
     try:
         while True:
             time.sleep(1)
@@ -527,6 +542,7 @@ def main() -> None:
                 ws_public_ref.exit()
         except Exception:
             pass
+
 
 if __name__ == "__main__":
     main()

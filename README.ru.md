@@ -138,6 +138,10 @@ pre-commit run --all-files
 - Docker build
 - `docker compose config`
 
+## Безопасность
+
+См. [Политику безопасности](SECURITY.ru.md).
+
 ## Лицензия
 
 MIT — используйте на свой страх и риск.

@@ -58,5 +58,3 @@ def from_env() -> BotConfig:
         log_dir=log_dir,
         testnet=testnet,
     )
-
-
