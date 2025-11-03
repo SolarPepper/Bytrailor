@@ -1,0 +1,6 @@
+[bandit]
+exclude_dirs = venv,env,.venv,build,dist
+skips = B101,B601
+severity-medium = true
+
+
